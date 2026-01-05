@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: db-migration-test-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: testpassword
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpassword
+    healthcheck:
+      test: ["CMD", "mysql", "-h", "localhost", "-u", "testuser", "-ptestpassword", "-e", "SELECT 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    volumes:
+      - mysql_test_data:/var/lib/mysql
+
+volumes:
+  mysql_test_data:
