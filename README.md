@@ -1,15 +1,15 @@
 # DB Migration CLI
 
-A Go-based database migration tool that tracks and executes SQL scripts with git integration, transaction support, and savepoint-based rollback.
+A Go-based database migration tool that tracks and executes SQL scripts with git integration
 
 ## Features
 
 - **Git Integration**: Automatically detects new SQL scripts based on git history
-- **Transaction Support**: Each script runs in its own transaction with savepoints
+- **Transaction Support**: Each script runs in its own transaction
 - **Modification Detection**: Fails if previously executed scripts have been modified or deleted
 - **Tracking Table**: Maintains execution history in `sqlScriptExec` table
 - **Colored Output**: Clear, timestamped console output with status indicators
-- **Missed Scripts**: Support for executing scripts that were missed in previous runs
+- **Missed Scripts**: Support for manual specification of executing scripts that were missed in previous runs
 
 ## Installation
 
@@ -218,6 +218,9 @@ docker compose up -d
 
 # Run a specific test
 go test -v -run TestMigrator_FreshMigration ./internal/migration/...
+
+# Run all tests
+go test -v ./internal/migration/...
 
 # Stop MySQL when done
 docker compose down
