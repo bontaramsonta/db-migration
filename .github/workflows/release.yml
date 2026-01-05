@@ -1,0 +1,118 @@
+name: Test and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git operations in tests
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      
+      - name: Start MySQL with Docker Compose
+        run: docker compose up -d
+      
+      - name: Wait for MySQL to be healthy
+        run: |
+          timeout 60 bash -c 'until docker compose exec -T mysql mysql -h localhost -u testuser -ptestpassword -e "SELECT 1" > /dev/null 2>&1; do sleep 2; done'
+      
+      - name: Run tests
+        run: go test -v ./internal/migration/...
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3307
+          TEST_DB_USER: testuser
+          TEST_DB_PASSWORD: testpassword
+          TEST_DB_NAME: testdb
+      
+      - name: Stop MySQL
+        if: always()
+        run: docker compose down -v
+
+  release:
+    name: Create Release
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write  # Required to create releases and push tags
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Generate version and create tag
+        id: tag_version
+        uses: anothrNick/github-tag-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch  # Increment patch version by default
+          INITIAL_VERSION: 0.0.1  # Start from v0.0.1 if no tags exist
+          WITH_V: true  # Include 'v' prefix in tags (v0.0.1)
+      
+      - name: Get previous tag for release notes
+        id: get_previous_tag
+        run: |
+          # Get the latest tag before this commit, or use initial commit if none exists
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD 2>/dev/null || echo "")
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      
+      - name: Build binaries
+        run: |
+          VERSION="${{ steps.tag_version.outputs.new_tag }}"
+          # Build for multiple platforms
+          GOOS=linux GOARCH=amd64 go build -o db-migration-linux-amd64 ./cmd/db-migration
+          GOOS=darwin GOARCH=amd64 go build -o db-migration-darwin-amd64 ./cmd/db-migration
+          GOOS=darwin GOARCH=arm64 go build -o db-migration-darwin-arm64 ./cmd/db-migration
+          GOOS=windows GOARCH=amd64 go build -o db-migration-windows-amd64.exe ./cmd/db-migration
+          
+          # Create checksums
+          sha256sum db-migration-* > checksums.txt
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: |
+            ## Changes
+            
+            See [commit history](https://github.com/${{ github.repository }}/compare/${{ steps.get_previous_tag.outputs.previous_tag }}...${{ github.sha }}) for details.
+            
+            ## Installation
+            
+            Download the appropriate binary for your platform:
+            - Linux (amd64): `db-migration-linux-amd64`
+            - macOS (amd64): `db-migration-darwin-amd64`
+            - macOS (arm64): `db-migration-darwin-arm64`
+            - Windows (amd64): `db-migration-windows-amd64.exe`
+          files: |
+            db-migration-linux-amd64
+            db-migration-darwin-amd64
+            db-migration-darwin-arm64
+            db-migration-windows-amd64.exe
+            checksums.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
